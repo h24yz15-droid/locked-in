@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Locked In",
+  "version": "0.1.0",
+  "description": "A focus extension that keeps you aligned with your current workflow.",
+  "permissions": ["storage"],
+  "action": {
+    "default_title": "Locked In",
+    "default_popup": "popup.html"
+  }
+}

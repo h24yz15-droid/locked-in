@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Locked In</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1 class="logo">Locked In</h1>
+      <p class="tagline">What are you working on?</p>
+    </header>
+
+    <form id="workflow-form">
+      <label for="workflow-input" class="sr-only">Current workflow</label>
+      <input
+        type="text"
+        id="workflow-input"
+        placeholder="e.g. Build my browser extension"
+        autocomplete="off"
+        spellcheck="false"
+        maxlength="120"
+      >
+      <button type="submit" id="save-button">Save workflow</button>
+    </form>
+
+    <p id="confirmation" class="confirmation" hidden>Workflow saved.</p>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
