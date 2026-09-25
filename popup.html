@@ -7,95 +7,287 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1 class="logo">Locked In</h1>
-      <p class="tagline">What are you working on?</p>
+  <div class="app">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="header-brand">
+        <span class="brand-mark"><img id="header-brand-icon" src="main-icon.png" alt="Locked In"></span>
+        <span class="brand-name">Locked In</span>
+      </div>
+      <div class="header-right">
+        <span id="header-session-pill" class="session-pill">
+          <span class="dot"></span>
+          <span id="header-session-state">Inactive</span>
+        </span>
+        <button type="button" id="header-settings" class="header-btn" title="Settings" aria-label="Settings">
+          <svg class="icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
     </header>
 
-    <section class="session-section">
-      <div class="session-info">
-        <div class="session-state-line">
-          <span id="session-dot" class="session-dot"></span>
-          <strong id="session-state" class="session-state">Inactive</strong>
+    <div id="app-banner" class="banner banner-loading" hidden>
+      <span class="spinner"></span>
+      <span id="app-banner-text">Loading session…</span>
+    </div>
+
+    <!-- Checklist / main view -->
+    <section id="view-checklist" class="view screen-enter view-scroll" data-view="checklist">
+      <div class="session-card" id="session-card">
+        <div class="session-card-top">
+          <div class="session-card-title">
+            <div class="session-state-line">
+              <span id="session-dot" class="session-dot"></span>
+              <strong id="session-state" class="session-state">Inactive</strong>
+            </div>
+            <span id="session-hint" class="session-hint">Enforcement is off. Your workflow is kept.</span>
+          </div>
+          <button type="button" id="toggle-button" class="toggle-button">Turn on</button>
         </div>
-        <span id="session-hint" class="session-hint">Enforcement is off.</span>
-        <span id="focus-time" class="focus-time"></span>
+
+        <form id="workflow-form" class="workflow-form">
+          <div class="workflow-field">
+            <label for="workflow-input" class="sr-only">Current workflow</label>
+            <input
+              type="text"
+              id="workflow-input"
+              placeholder="e.g. Build my browser extension"
+              autocomplete="off"
+              spellcheck="false"
+              maxlength="120"
+            >
+            <button type="submit" id="save-button">Save</button>
+          </div>
+        </form>
+        <p id="confirmation" class="confirmation" hidden>Workflow saved.</p>
+
+        <div class="timer-strip">
+          <svg class="icon timer-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+          <span id="focus-time" class="font-mono"></span>
+          <span class="spacer"></span>
+          <button type="button" id="view-timer-btn" class="view-timer-btn">View</button>
+        </div>
       </div>
-      <button type="button" id="toggle-button" class="toggle-button">Turn on</button>
-    </section>
 
-    <form id="workflow-form">
-      <label for="workflow-input" class="sr-only">Current workflow</label>
-      <input
-        type="text"
-        id="workflow-input"
-        placeholder="e.g. Build my browser extension"
-        autocomplete="off"
-        spellcheck="false"
-        maxlength="120"
-      >
-      <button type="submit" id="save-button">Save workflow</button>
-    </form>
-    <p id="confirmation" class="confirmation" hidden>Workflow saved.</p>
-
-    <section class="checklist-section">
-      <h2 class="saved-heading">Checklist</h2>
-      <form id="checklist-form" class="checklist-form">
-        <label for="checklist-input" class="sr-only">Add checklist item</label>
-        <input
-          type="text"
-          id="checklist-input"
-          placeholder="Add a step…"
-          autocomplete="off"
-          spellcheck="false"
-          maxlength="200"
-        >
-        <button type="submit" id="checklist-add">Add</button>
-      </form>
-      <p id="checklist-progress" class="checklist-progress"></p>
-      <ul id="checklist-list" class="checklist-list"></ul>
-    </section>
-
-    <section class="saved-section">
-      <h2 class="saved-heading">Saved for later</h2>
-      <ul id="saved-list" class="saved-list"></ul>
-      <p id="saved-empty" class="saved-empty" hidden>Nothing saved for later.</p>
-    </section>
-
-    <section class="settings-section">
-      <h2 class="saved-heading">Settings</h2>
-      <label class="dev-toggle">
-        <input type="checkbox" id="focus-timer" checked>
-        <span>Focus timer</span>
-      </label>
-      <label class="dev-toggle">
-        <input type="checkbox" id="enforce-tabs-checkbox" checked>
-        <span>Tab enforcement</span>
-      </label>
-      <label class="dev-toggle">
-        <input type="checkbox" id="organize-tabs-checkbox" checked>
-        <span>Automatic tab organization</span>
-      </label>
-      <div class="settings-row">
-        <label class="settings-label" for="cleanup-frequency-select">Cleanup frequency</label>
-        <select id="cleanup-frequency-select">
-          <option value="0">0 minutes</option>
-          <option value="15">15 minutes</option>
-          <option value="30" selected>30 minutes</option>
-          <option value="60">60 minutes</option>
-        </select>
+      <div class="stats-row">
+        <div class="stat-card is-dim" id="stat-open">
+          <div class="stat-value">–</div>
+          <div class="stat-label">Open tabs</div>
+        </div>
+        <div class="stat-card is-cyan" id="stat-saved">
+          <div class="stat-value">0</div>
+          <div class="stat-label">Saved</div>
+        </div>
+        <div class="stat-card is-green" id="stat-checklist">
+          <div class="stat-value">0/0</div>
+          <div class="stat-label">Checklist</div>
+        </div>
       </div>
-      <button type="button" id="end-session-button" class="end-session-button">End session</button>
+
+      <div class="checklist-section">
+        <div class="section-head">
+          <span class="section-title">Checklist</span>
+          <div class="section-meta">
+            <span id="checklist-progress" class="checklist-progress">No checklist items yet.</span>
+          </div>
+        </div>
+        <form id="checklist-form" class="checklist-form">
+          <label for="checklist-input" class="sr-only">Add checklist item</label>
+          <svg class="icon plus" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <input
+            type="text"
+            id="checklist-input"
+            placeholder="Add a step…"
+            autocomplete="off"
+            spellcheck="false"
+            maxlength="200"
+          >
+          <button type="submit" id="checklist-add">Add</button>
+        </form>
+        <ul id="checklist-list" class="checklist-list"></ul>
+      </div>
     </section>
 
-    <section class="dev-section">
-      <h2 class="saved-heading">Developer testing</h2>
-      <label class="dev-toggle">
-        <input type="checkbox" id="dev-bypass">
-        <span>Bypass cleanup cooldown</span>
-      </label>
+    <!-- Timer view -->
+    <section id="view-timer" class="view screen-enter is-hidden" data-view="timer" hidden>
+      <div class="timer-head">
+        <button type="button" class="back-btn" data-goto="checklist" aria-label="Back">
+          <svg class="icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          <span>Focus Timer</span>
+        </button>
+        <span id="timer-badge" class="timer-badge"><span class="dot"></span><span id="timer-badge-text">Inactive</span></span>
+      </div>
+      <div class="timer-ring-wrap">
+        <div class="timer-ring">
+          <svg width="200" height="200">
+            <circle cx="100" cy="100" r="80" fill="none" stroke="var(--edge)" stroke-width="6"/>
+            <circle id="timer-ring-progress" cx="100" cy="100" r="80" fill="none" stroke="var(--cyan)" stroke-width="6" stroke-linecap="round" stroke-dasharray="502.65" stroke-dashoffset="502.65" transform="rotate(-90 100 100)"/>
+          </svg>
+          <div class="timer-ring-center">
+            <div id="timer-time" class="timer-ring-time font-mono">00:00</div>
+            <div class="timer-ring-label">focus time</div>
+            <div id="timer-workflow" class="timer-ring-workflow">NO WORKFLOW</div>
+          </div>
+        </div>
+        <p class="timer-hint">Your focus session ends when you turn Locked In off.</p>
+      </div>
     </section>
+
+    <!-- Saved tabs view -->
+    <section id="view-saved" class="view screen-enter is-hidden" data-view="saved" hidden>
+      <div class="timer-head">
+        <button type="button" class="back-btn" data-goto="checklist" aria-label="Back">
+          <svg class="icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          <span>Saved Tabs</span>
+        </button>
+        <span id="saved-count" class="timer-badge">0 saved</span>
+      </div>
+      <div class="saved-scroll">
+        <ul id="saved-list" class="saved-list"></ul>
+        <div id="saved-empty" class="empty-box" hidden>
+          <div class="empty-icon">
+            <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+          </div>
+          <div>
+            <div class="empty-title">No saved tabs</div>
+            <div class="empty-sub">Tabs you save during your session<br>will appear here.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Settings view -->
+    <section id="view-settings" class="view screen-enter is-hidden" data-view="settings" hidden>
+      <div class="settings-head">
+        <button type="button" class="back-btn" data-goto="checklist" aria-label="Back">
+          <svg class="icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          <span>Settings</span>
+        </button>
+      </div>
+
+      <div class="settings-scroll">
+        <div id="master-switch" class="master-switch">
+          <div class="master-switch-left">
+            <span class="master-mark"><img id="master-mark-icon" src="main-icon.png" alt=""></span>
+            <div>
+              <div class="master-name">Locked In</div>
+              <div class="master-sub" id="master-sub">Paused — all tabs allowed</div>
+            </div>
+          </div>
+          <button type="button" class="toggle" id="master-toggle" role="switch" aria-checked="false" aria-label="Locked In"></button>
+        </div>
+
+        <div class="section-label">Session</div>
+        <div class="setting-group">
+          <div class="setting-row">
+            <div>
+              <div class="setting-row-label">Focus timer</div>
+              <div class="setting-row-sub">Show elapsed focus time in the popup</div>
+            </div>
+            <label class="toggle-row">
+              <input type="checkbox" id="focus-timer" checked>
+              <span class="track" aria-hidden="true"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="section-label">Tabs</div>
+        <div class="setting-group">
+          <div class="setting-row">
+            <div>
+              <div class="setting-row-label">Tab enforcement</div>
+              <div class="setting-row-sub">Auto-close new tabs that don't fit your workflow</div>
+            </div>
+            <label class="toggle-row">
+              <input type="checkbox" id="enforce-tabs-checkbox" checked>
+              <span class="track" aria-hidden="true"></span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-row-label">Automatic tab organization</div>
+              <div class="setting-row-sub">Reorder tabs by activity</div>
+            </div>
+            <label class="toggle-row">
+              <input type="checkbox" id="organize-tabs-checkbox" checked>
+              <span class="track" aria-hidden="true"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="section-label">Cleanup</div>
+        <div class="setting-group">
+          <div class="setting-row">
+            <div>
+              <div class="setting-row-label">Cleanup frequency</div>
+              <div class="setting-row-sub">How often "Still Locked In?" rechecks tabs</div>
+            </div>
+            <select id="cleanup-frequency-select" class="freq-select">
+              <option value="0">0 minutes</option>
+              <option value="15">15 minutes</option>
+              <option value="30" selected>30 minutes</option>
+              <option value="60">60 minutes</option>
+            </select>
+          </div>
+        </div>
+        <div class="end-session-row">
+          <button type="button" id="end-session-button" class="end-session-button">End session</button>
+        </div>
+
+        <div class="section-label">Appearance</div>
+        <div class="setting-group">
+          <div class="setting-row">
+            <div>
+              <div class="setting-row-label">Dark mode</div>
+              <div class="setting-row-sub">Warm dark surfaces</div>
+            </div>
+            <label class="toggle-row">
+              <input type="checkbox" id="dark-mode-toggle">
+              <span class="track" aria-hidden="true"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="section-label">Developer</div>
+        <div class="dev-section" id="dev-section">
+          <button type="button" class="dev-section-head" aria-expanded="false" aria-controls="dev-section-body">
+            <span class="section-title">Developer Settings</span>
+            <svg class="dev-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="dev-section-body" id="dev-section-body" hidden>
+            <label class="dev-toggle">
+              <input type="checkbox" id="dev-bypass">
+              <span>Bypass cleanup cooldown</span>
+            </label>
+            <div class="dev-hint">Skips the cleanup frequency cooldown.</div>
+          </div>
+        </div>
+
+        <div class="settings-footer">
+          <span class="settings-version">Locked In v1.0.0</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bottom nav -->
+    <nav class="bottom-nav">
+      <button type="button" class="nav-btn is-active" data-goto="checklist" data-label="Checklist">
+        <svg class="icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        <span>Checklist</span>
+      </button>
+      <button type="button" class="nav-btn" data-goto="timer" data-label="Timer">
+        <svg class="icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+        <span>Timer</span>
+      </button>
+      <button type="button" class="nav-btn" data-goto="saved" data-label="Saved">
+        <svg class="icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        <span>Saved</span>
+      </button>
+      <button type="button" class="nav-btn" data-goto="settings" data-label="Settings">
+        <svg class="icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>Settings</span>
+      </button>
+    </nav>
   </div>
 
   <script src="popup.js"></script>

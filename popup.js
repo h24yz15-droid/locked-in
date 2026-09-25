@@ -4,6 +4,7 @@ const LEGACY_STORAGE_KEY = "currentWorkflow";
 const SAVED_KEY = "savedTabs";
 const DEV_BYPASS_CLEANUP_KEY = "li_dev_bypass_cleanup_cooldown";
 const SETTINGS_KEY = "li_settings";
+const THEME_KEY = "li_theme";
 const SETTINGS_DEFAULTS = {
   focusTimer: true,
   enforceTabs: true,
@@ -19,6 +20,9 @@ const toggleButton = document.getElementById("toggle-button");
 const sessionState = document.getElementById("session-state");
 const sessionHint = document.getElementById("session-hint");
 const sessionDot = document.getElementById("session-dot");
+const sessionCard = document.getElementById("session-card");
+const headerSessionState = document.getElementById("header-session-state");
+const headerSessionPill = document.getElementById("header-session-pill");
 const focusTime = document.getElementById("focus-time");
 const checklistForm = document.getElementById("checklist-form");
 const checklistInput = document.getElementById("checklist-input");
@@ -28,11 +32,41 @@ const checklistList = document.getElementById("checklist-list");
 const devBypassInput = document.getElementById("dev-bypass");
 const savedList = document.getElementById("saved-list");
 const savedEmpty = document.getElementById("saved-empty");
+const savedCount = document.getElementById("saved-count");
 const focusTimerInput = document.getElementById("focus-timer");
 const enforceTabsInput = document.getElementById("enforce-tabs-checkbox");
 const organizeTabsInput = document.getElementById("organize-tabs-checkbox");
 const cleanupFrequencySelect = document.getElementById("cleanup-frequency-select");
 const endSessionButton = document.getElementById("end-session-button");
+const masterSwitch = document.getElementById("master-switch");
+const masterToggle = document.getElementById("master-toggle");
+const masterSub = document.getElementById("master-sub");
+const darkModeToggle = document.getElementById("dark-mode-toggle");
+const headerSettingsBtn = document.getElementById("header-settings");
+const viewTimerBtn = document.getElementById("view-timer-btn");
+const timerTime = document.getElementById("timer-time");
+const timerWorkflow = document.getElementById("timer-workflow");
+const timerBadgeText = document.getElementById("timer-badge-text");
+const statOpen = document.getElementById("stat-open");
+const statSaved = document.getElementById("stat-saved");
+const statChecklist = document.getElementById("stat-checklist");
+const appBanner = document.getElementById("app-banner");
+const appBannerText = document.getElementById("app-banner-text");
+
+const MAIN_ICON = "main-icon.png";
+const LOCKED_ICON = "locked-icon.png";
+
+function getBrandIconUrl(active) {
+  try {
+    return chrome.runtime.getURL(active ? LOCKED_ICON : MAIN_ICON);
+  } catch (err) {
+    return active ? LOCKED_ICON : MAIN_ICON;
+  }
+}
+
+function on(element, type, fn) {
+  if (element) element.addEventListener(type, fn);
+}
 
 let settings = { ...SETTINGS_DEFAULTS };
 
@@ -58,18 +92,17 @@ function renderFocusTime() {
     clearInterval(focusClockTimerId);
     focusClockTimerId = null;
   }
-  if (!settings.focusTimer) {
-    focusTime.textContent = "";
-    return;
-  }
   const active = Boolean(session && session.active);
   const started = session && typeof session.focusStartedAt === "number" ? session.focusStartedAt : null;
-  if (!active || started == null) {
-    focusTime.textContent = "";
+  if (!settings.focusTimer || !active || started == null) {
+    if (focusTime) focusTime.textContent = "";
+    if (timerTime) timerTime.textContent = "00:00";
     return;
   }
   const update = () => {
-    focusTime.textContent = `Focus ${formatFocusDuration(Date.now() - started)}`;
+    const elapsed = formatFocusDuration(Date.now() - started);
+    if (focusTime) focusTime.textContent = elapsed;
+    if (timerTime) timerTime.textContent = elapsed;
   };
   update();
   focusClockTimerId = setInterval(update, 1000);
@@ -89,8 +122,6 @@ function makeSession({ active = false, workflow = "", checklist = [] } = {}) {
     active,
     workflow: typeof workflow === "string" ? workflow : "",
     checklist: Array.isArray(checklist) ? checklist : [],
-    onboardingStatus: active ? "accepted" : "pending",
-    onboardingOfferedAt: null,
     lastCleanupChainAt: null,
     lastCleanupPromptAt: null,
     tabActivity: {},
@@ -174,6 +205,7 @@ async function persistSession(patch) {
 }
 
 function showConfirmation() {
+  if (!confirmation) return;
   confirmation.hidden = false;
   if (confirmationTimeoutId) {
     clearTimeout(confirmationTimeoutId);
@@ -183,17 +215,63 @@ function showConfirmation() {
   }, 2000);
 }
 
+function renderHeader() {
+  const active = Boolean(session && session.active);
+  if (headerSessionState) {
+    headerSessionState.textContent = active ? "Locked in" : "Inactive";
+  }
+  if (headerSessionPill) {
+    headerSessionPill.classList.toggle("is-active", active);
+  }
+  if (sessionCard) sessionCard.classList.toggle("is-active", active);
+  if (masterSwitch) masterSwitch.classList.toggle("is-on", active);
+  if (masterToggle) {
+    masterToggle.classList.toggle("on", active);
+    masterToggle.setAttribute("aria-checked", String(active));
+  }
+  if (masterSub) {
+    masterSub.textContent = active
+      ? "Active — staying focused"
+      : "Paused — all tabs allowed";
+  }
+  if (timerBadgeText) {
+    timerBadgeText.textContent = active ? "Focusing" : "Inactive";
+    const badge = timerBadgeText.closest("span.timer-badge");
+    if (badge) badge.classList.toggle("is-active", active);
+  }
+  const iconUrl = getBrandIconUrl(active);
+  const brandIcon = document.getElementById("header-brand-icon");
+  if (brandIcon) brandIcon.src = iconUrl;
+  const masterMarkIcon = document.getElementById("master-mark-icon");
+  if (masterMarkIcon) masterMarkIcon.src = iconUrl;
+}
+
+function updateTimerView() {
+  const active = Boolean(session && session.active);
+  const workflow = session && session.workflow ? session.workflow.trim() : "";
+  if (timerWorkflow) {
+    timerWorkflow.textContent = workflow ? workflow.toUpperCase() : "NO WORKFLOW";
+    timerWorkflow.title = workflow || "";
+  }
+  renderFocusTime();
+}
+
 function renderSession() {
   const active = Boolean(session && session.active);
-  sessionDot.classList.toggle("is-active", active);
-  sessionState.textContent = active ? "Locked in" : "Inactive";
-  sessionHint.textContent = active
-    ? "New tabs will be checked against your workflow."
-    : "Enforcement is off. Your workflow is kept.";
-  toggleButton.textContent = active ? "Turn off" : "Turn on";
-  toggleButton.classList.toggle("is-active", active);
-  input.value = session && session.workflow ? session.workflow : "";
-  renderFocusTime();
+  if (sessionDot) sessionDot.classList.toggle("is-active", active);
+  if (sessionState) sessionState.textContent = active ? "Locked in" : "Inactive";
+  if (sessionHint) {
+    sessionHint.textContent = active
+      ? "New tabs will be checked against your workflow."
+      : "Enforcement is off. Your workflow is kept.";
+  }
+  if (toggleButton) {
+    toggleButton.textContent = active ? "Turn off" : "Turn on";
+    toggleButton.classList.toggle("is-active", active);
+  }
+  if (input) input.value = session && session.workflow ? session.workflow : "";
+  renderHeader();
+  updateTimerView();
   renderChecklist();
 }
 
@@ -232,6 +310,15 @@ function commitEdit(index, value) {
   persistSession({ checklist: items }).then(renderChecklist);
 }
 
+const GRIP_SVG =
+  '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="7" r="1.6"/><circle cx="15" cy="7" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="17" r="1.6"/><circle cx="15" cy="17" r="1.6"/></svg>';
+const PENCIL_SVG =
+  '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+const TRASH_SVG =
+  '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+const EXTERNAL_SVG =
+  '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
+
 function buildChecklistItem(item, index) {
   const li = document.createElement("li");
   li.className = "checklist-item";
@@ -239,7 +326,7 @@ function buildChecklistItem(item, index) {
 
   const grip = document.createElement("span");
   grip.className = "checklist-grip";
-  grip.textContent = "☰";
+  grip.innerHTML = GRIP_SVG;
   grip.title = "Drag to reorder";
   grip.draggable = true;
   grip.addEventListener("dragstart", (event) => {
@@ -315,12 +402,13 @@ function buildChecklistItem(item, index) {
   }
 
   const actions = document.createElement("div");
-  actions.className = "saved-actions";
+  actions.className = "checklist-actions";
 
   const editButton = document.createElement("button");
   editButton.type = "button";
-  editButton.className = "saved-remove";
-  editButton.textContent = "Edit";
+  editButton.className = "saved-remove row-btn";
+  editButton.innerHTML = PENCIL_SVG;
+  editButton.append(document.createTextNode("Edit"));
   editButton.addEventListener("click", () => {
     editingIndex = index;
     renderChecklist();
@@ -328,8 +416,9 @@ function buildChecklistItem(item, index) {
 
   const removeButton = document.createElement("button");
   removeButton.type = "button";
-  removeButton.className = "saved-remove";
-  removeButton.textContent = "Remove";
+  removeButton.className = "saved-remove row-btn is-danger";
+  removeButton.innerHTML = TRASH_SVG;
+  removeButton.append(document.createTextNode("Remove"));
   removeButton.addEventListener("click", () => {
     const items = session.checklist.filter((_, itemIndex) => itemIndex !== index);
     persistSession({ checklist: items }).then(renderChecklist);
@@ -343,21 +432,56 @@ function buildChecklistItem(item, index) {
 function renderChecklist() {
   const items = session && Array.isArray(session.checklist) ? session.checklist : [];
   const completed = items.filter((item) => Boolean(item.completed)).length;
-  checklistProgress.textContent =
-    items.length === 0
-      ? "No checklist items yet."
-      : `${completed} / ${items.length} completed`;
-  checklistList.replaceChildren();
-  items.forEach((item, index) => {
-    if (item && typeof item === "object") {
-      checklistList.append(buildChecklistItem(item, index));
-    }
-  });
+  if (checklistProgress) {
+    checklistProgress.textContent =
+      items.length === 0
+        ? "No checklist items yet."
+        : `${completed} / ${items.length} completed`;
+  }
+  if (checklistList) {
+    checklistList.replaceChildren();
+    items.forEach((item, index) => {
+      if (item && typeof item === "object") {
+        checklistList.append(buildChecklistItem(item, index));
+      }
+    });
+  }
+  renderStats().catch(() => {});
+}
+
+function faviconInitial(item) {
+  const url = item && item.url ? item.url : "";
+  let host = "";
+  try {
+    host = url ? new URL(url).hostname : "";
+  } catch (err) {
+    host = "";
+  }
+  const letter =
+    (host && host.replace(/^www\./, "")[0]) ||
+    (item && item.title && item.title.trim()[0]) ||
+    "T";
+  return letter.toUpperCase();
 }
 
 function buildSavedItem(item) {
   const li = document.createElement("li");
   li.className = "saved-item";
+  li.tabIndex = 0;
+  li.setAttribute("role", "button");
+  li.setAttribute("aria-label", `Open ${item.title || "saved tab"}`);
+  li.addEventListener("click", () => openSaved(item.id));
+  li.addEventListener("keydown", (event) => {
+    if (event.target !== li) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openSaved(item.id);
+    }
+  });
+
+  const favicon = document.createElement("div");
+  favicon.className = "saved-favicon";
+  favicon.textContent = faviconInitial(item);
 
   const info = document.createElement("div");
   info.className = "saved-info";
@@ -385,30 +509,79 @@ function buildSavedItem(item) {
   const openButton = document.createElement("button");
   openButton.type = "button";
   openButton.className = "saved-open";
-  openButton.textContent = "Open";
-  openButton.addEventListener("click", () => openSaved(item.id));
+  openButton.innerHTML = EXTERNAL_SVG;
+  openButton.title = "Open";
+  openButton.setAttribute("aria-label", "Open");
+  openButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openSaved(item.id);
+  });
 
   const removeButton = document.createElement("button");
   removeButton.type = "button";
   removeButton.className = "saved-remove";
-  removeButton.textContent = "Remove";
-  removeButton.addEventListener("click", () => removeSaved(item.id));
+  removeButton.innerHTML = TRASH_SVG;
+  removeButton.title = "Remove";
+  removeButton.setAttribute("aria-label", "Remove");
+  removeButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    removeSaved(item.id);
+  });
 
   actions.append(openButton, removeButton);
-  li.append(info, actions);
+  li.append(favicon, info, actions);
   return li;
 }
 
 async function renderSavedTabs() {
   const result = await chrome.storage.local.get(SAVED_KEY);
   const tabs = Array.isArray(result[SAVED_KEY]) ? result[SAVED_KEY] : [];
-  savedEmpty.hidden = tabs.length > 0;
-  savedList.replaceChildren();
-  tabs.forEach((item) => {
-    if (item && typeof item === "object") {
-      savedList.append(buildSavedItem(item));
+  if (savedEmpty) savedEmpty.hidden = tabs.length > 0;
+  if (savedCount) {
+    savedCount.textContent = tabs.length === 1 ? "1 saved" : `${tabs.length} saved`;
+  }
+  if (savedList) {
+    savedList.replaceChildren();
+    tabs.forEach((item) => {
+      if (item && typeof item === "object") {
+        savedList.append(buildSavedItem(item));
+      }
+    });
+  }
+  renderStats().catch(() => {});
+}
+
+async function renderStats() {
+  if (windowId == null) return;
+  let openCount = 0;
+  try {
+    const tabs = await chrome.tabs.query({ windowId });
+    openCount = tabs.filter((tab) => {
+      const url = tab.url || tab.pendingUrl || "";
+      return /^https?:\/\//i.test(url);
+    }).length;
+  } catch (err) {
+    openCount = 0;
+  }
+  const savedResult = await chrome.storage.local.get(SAVED_KEY);
+  const savedTabs = Array.isArray(savedResult[SAVED_KEY]) ? savedResult[SAVED_KEY] : [];
+  const items = session && Array.isArray(session.checklist) ? session.checklist : [];
+  const done = items.filter((item) => Boolean(item.completed)).length;
+  if (statOpen && statOpen.querySelector(".stat-value")) {
+    statOpen.querySelector(".stat-value").textContent = String(openCount);
+  }
+  if (statSaved && statSaved.querySelector(".stat-value")) {
+    statSaved.querySelector(".stat-value").textContent = String(savedTabs.length);
+  }
+  if (statChecklist) {
+    const value = statChecklist.querySelector(".stat-value");
+    if (value) {
+      value.textContent =
+        items.length === 0 ? "—" : `${done}/${items.length}`;
     }
-  });
+    statChecklist.title =
+      items.length === 0 ? "No checklist items" : `${done} of ${items.length} checklist items done`;
+  }
 }
 
 async function openSaved(itemId) {
@@ -429,39 +602,39 @@ async function removeSaved(itemId) {
   renderSavedTabs();
 }
 
-form.addEventListener("submit", (event) => {
+on(form, "submit", (event) => {
   event.preventDefault();
   const workflow = input.value.trim();
-  saveButton.disabled = true;
+  if (saveButton) saveButton.disabled = true;
   persistSession({ workflow }).then(() => {
-    saveButton.disabled = false;
+    if (saveButton) saveButton.disabled = false;
     showConfirmation();
     renderSession();
   });
 });
 
-toggleButton.addEventListener("click", async () => {
+function toggleSession() {
   const nextActive = !(session && session.active);
-  const patch = { active: nextActive };
-  if (nextActive) {
-    patch.onboardingStatus = "accepted";
-    patch.focusStartedAt = Date.now();
-  } else {
-    patch.focusStartedAt = null;
-    if (!session || session.onboardingStatus !== "accepted") {
-      patch.onboardingStatus = "declined";
-    }
-  }
-  toggleButton.disabled = true;
-  try {
-    await persistSession(patch);
-  } finally {
-    toggleButton.disabled = false;
-  }
-  renderSession();
-});
+  const patch = {
+    active: nextActive,
+    focusStartedAt: nextActive ? Date.now() : null,
+  };
+  if (toggleButton) toggleButton.disabled = true;
+  if (masterToggle) masterToggle.disabled = true;
+  const finish = () => {
+    if (toggleButton) toggleButton.disabled = false;
+    if (masterToggle) masterToggle.disabled = false;
+  };
+  return persistSession(patch)
+    .then(renderSession)
+    .finally(finish);
+}
 
-checklistForm.addEventListener("submit", (event) => {
+on(toggleButton, "click", toggleSession);
+
+on(masterToggle, "click", toggleSession);
+
+on(checklistForm, "submit", (event) => {
   event.preventDefault();
   const text = checklistInput.value.trim();
   if (!text) return;
@@ -473,20 +646,30 @@ checklistForm.addEventListener("submit", (event) => {
   persistSession({ checklist: items }).then(renderChecklist);
 });
 
-devBypassInput.addEventListener("change", () => {
+on(devBypassInput, "change", () => {
   chrome.storage.local
     .set({ [DEV_BYPASS_CLEANUP_KEY]: devBypassInput.checked })
     .catch(() => {});
 });
 
+on(document.querySelector(".dev-section-head"), "click", (event) => {
+  const head = document.querySelector(".dev-section-head");
+  const body = document.getElementById("dev-section-body");
+  const isOpen = head.classList.toggle("is-open");
+  if (body) body.hidden = !isOpen;
+  head.setAttribute("aria-expanded", String(isOpen));
+});
+
 function renderSettings() {
-  focusTimerInput.checked = settings.focusTimer === true;
-  enforceTabsInput.checked = settings.enforceTabs !== false;
-  organizeTabsInput.checked = settings.organizeTabs !== false;
+  if (focusTimerInput) focusTimerInput.checked = settings.focusTimer === true;
+  if (enforceTabsInput) enforceTabsInput.checked = settings.enforceTabs !== false;
+  if (organizeTabsInput) organizeTabsInput.checked = settings.organizeTabs !== false;
   const frequency = Number(settings.cleanupFrequency);
-  cleanupFrequencySelect.value = [0, 15, 30, 60].includes(frequency)
-    ? String(frequency)
-    : "30";
+  if (cleanupFrequencySelect) {
+    cleanupFrequencySelect.value = [0, 15, 30, 60].includes(frequency)
+      ? String(frequency)
+      : "30";
+  }
 }
 
 async function persistSettings(patch) {
@@ -495,25 +678,25 @@ async function persistSettings(patch) {
   await chrome.storage.local.set({ [SETTINGS_KEY]: merged }).catch(() => {});
 }
 
-focusTimerInput.addEventListener("change", () => {
+on(focusTimerInput, "change", () => {
   persistSettings({ focusTimer: focusTimerInput.checked }).then(() => {
     renderFocusTime();
   });
 });
 
-enforceTabsInput.addEventListener("change", () => {
+on(enforceTabsInput, "change", () => {
   persistSettings({ enforceTabs: enforceTabsInput.checked });
 });
 
-organizeTabsInput.addEventListener("change", () => {
+on(organizeTabsInput, "change", () => {
   persistSettings({ organizeTabs: organizeTabsInput.checked });
 });
 
-cleanupFrequencySelect.addEventListener("change", () => {
+on(cleanupFrequencySelect, "change", () => {
   persistSettings({ cleanupFrequency: Number(cleanupFrequencySelect.value) });
 });
 
-endSessionButton.addEventListener("click", () => {
+on(endSessionButton, "click", () => {
   if (windowId == null) return;
   endSessionButton.disabled = true;
   chrome.runtime
@@ -524,29 +707,101 @@ endSessionButton.addEventListener("click", () => {
     });
 });
 
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== "local") return;
-  if (changes[SAVED_KEY]) {
-    renderSavedTabs();
-  }
-  if (changes[SETTINGS_KEY] && changes[SETTINGS_KEY].newValue) {
-    settings = { ...SETTINGS_DEFAULTS, ...changes[SETTINGS_KEY].newValue };
-    renderSettings();
-    renderFocusTime();
-  }
-  if (changes[SESSIONS_KEY]) {
-    readSessions().then((sessions) => {
-      session =
-        windowId != null && sessions[windowId] ? sessions[windowId] : null;
-      if (session && !Array.isArray(session.checklist)) {
-        session.checklist = [];
-      }
-      if (editingIndex === -1) {
-        renderSession();
-      }
-    });
-  }
+/* ─── Theme ─── */
+function applyTheme(theme) {
+  const dark = theme === "dark";
+  document.documentElement.classList.toggle("dark", dark);
+  if (darkModeToggle) darkModeToggle.checked = dark;
+}
+
+function initTheme() {
+  return chrome.storage.local
+    .get(THEME_KEY)
+    .then((result) => applyTheme(result[THEME_KEY] === "dark" ? "dark" : "light"))
+    .catch(() => {});
+}
+
+function persistTheme(theme) {
+  chrome.storage.local.set({ [THEME_KEY]: theme }).catch(() => {});
+}
+
+on(darkModeToggle, "change", () => {
+  const theme = darkModeToggle.checked ? "dark" : "light";
+  applyTheme(theme);
+  persistTheme(theme);
 });
+
+/* ─── Views ─── */
+const views = ["checklist", "timer", "saved", "settings"];
+
+function showView(name) {
+  views.forEach((viewName) => {
+    const section = document.querySelector(`.view[data-view="${viewName}"]`);
+    if (section) {
+      const show = viewName === name;
+      section.hidden = !show;
+      section.classList.toggle("is-hidden", !show);
+    }
+  });
+  document.querySelectorAll(".nav-btn").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.goto === name);
+  });
+}
+
+function handleGoTo(target) {
+  if (!views.includes(target)) return;
+  showView(target);
+}
+
+document.querySelectorAll("[data-goto]").forEach((btn) => {
+  on(btn, "click", () => handleGoTo(btn.dataset.goto));
+});
+
+on(headerSettingsBtn, "click", () => handleGoTo("settings"));
+on(viewTimerBtn, "click", () => handleGoTo("timer"));
+
+function showBanner(kind, text) {
+  if (!appBanner || !appBannerText) return;
+  appBanner.classList.toggle("banner-error", kind === "error");
+  appBanner.classList.toggle("banner-loading", kind !== "error");
+  appBannerText.textContent = text;
+  appBanner.hidden = false;
+}
+
+function hideBanner() {
+  if (appBanner) appBanner.hidden = true;
+}
+
+try {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+    if (changes[SAVED_KEY]) {
+      renderSavedTabs();
+    }
+    if (changes[SETTINGS_KEY] && changes[SETTINGS_KEY].newValue) {
+      settings = { ...SETTINGS_DEFAULTS, ...changes[SETTINGS_KEY].newValue };
+      renderSettings();
+      renderFocusTime();
+    }
+    if (changes[THEME_KEY]) {
+      applyTheme(changes[THEME_KEY].newValue === "dark" ? "dark" : "light");
+    }
+    if (changes[SESSIONS_KEY]) {
+      readSessions().then((sessions) => {
+        session =
+          windowId != null && sessions[windowId] ? sessions[windowId] : null;
+        if (session && !Array.isArray(session.checklist)) {
+          session.checklist = [];
+        }
+        if (editingIndex === -1) {
+          renderSession();
+        }
+      });
+    }
+  });
+} catch (err) {
+  console.error("Locked In: could not attach storage listener", err);
+}
 
 (async () => {
   try {
@@ -555,6 +810,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
     await migrateLegacyWorkflow();
   } catch (err) {
     console.error("Locked In: popup init failed", err);
+    showBanner(
+      "error",
+      "Couldn't load your session. Saved tabs are safe — try reopening the popup."
+    );
   }
 
   const sessions = await readSessions();
@@ -565,7 +824,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
   try {
     const devResult = await chrome.storage.local.get(DEV_BYPASS_CLEANUP_KEY);
-    devBypassInput.checked = devResult[DEV_BYPASS_CLEANUP_KEY] === true;
+    if (devBypassInput) {
+      devBypassInput.checked = devResult[DEV_BYPASS_CLEANUP_KEY] === true;
+    }
   } catch (err) {
     // Dev bypass defaults to off.
   }
@@ -579,8 +840,24 @@ chrome.storage.onChanged.addListener((changes, area) => {
   } catch (err) {
     settings = { ...SETTINGS_DEFAULTS };
   }
-  renderSettings();
 
-  renderSession();
-  renderSavedTabs();
+  try {
+    renderSettings();
+    await initTheme();
+  } catch (err) {
+    console.error("Locked In: settings render failed", err);
+  }
+
+  hideBanner();
+  showView("checklist");
+  try {
+    renderSession();
+    renderSavedTabs();
+  } catch (err) {
+    console.error("Locked In: popup render failed", err);
+  }
+
+  chrome.runtime
+    .sendMessage({ type: "LI_SYNC_ICONS" })
+    .catch(() => {});
 })();

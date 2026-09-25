@@ -48,6 +48,89 @@ const promptedTabs = new Set();
 const newTabs = new Set();
 const tabUrls = new Map();
 const lastActiveTabInWindow = new Map();
+const websiteOwnedWindows = new Set();
+const recentlyCreatedWindows = new Map();
+
+const TRACK_STATE_KEY = "li_track_state";
+let trackPersistQueued = false;
+function persistTrackingStateSoon() {
+  if (trackPersistQueued) return;
+  trackPersistQueued = true;
+  Promise.resolve().then(async () => {
+    trackPersistQueued = false;
+    try {
+      await chrome.storage.session.set({
+        [TRACK_STATE_KEY]: {
+          newTabs: Array.from(newTabs),
+          promptedTabs: Array.from(promptedTabs),
+          freshTabs: Array.from(freshTabs.entries()),
+          pendingTabs: Array.from(pendingTabs.entries()),
+        },
+      });
+    } catch (err) {
+      // Best effort: enforcement tracking survives service worker restarts.
+    }
+  });
+}
+
+function hydrateTrackingState() {
+  chrome.storage.session
+    .get(TRACK_STATE_KEY)
+    .then((result) => {
+      const state = result[TRACK_STATE_KEY];
+      if (!state || typeof state !== "object") return;
+      if (Array.isArray(state.newTabs)) {
+        for (const id of state.newTabs) newTabs.add(id);
+      }
+      if (Array.isArray(state.promptedTabs)) {
+        for (const id of state.promptedTabs) promptedTabs.add(id);
+      }
+      if (Array.isArray(state.freshTabs)) {
+        for (const [id, windowId] of state.freshTabs) freshTabs.set(id, windowId);
+      }
+      if (Array.isArray(state.pendingTabs)) {
+        for (const [id, windowId] of state.pendingTabs)
+          pendingTabs.set(id, windowId);
+      }
+    })
+    .catch(() => {});
+}
+hydrateTrackingState();
+
+const MAIN_ICON = {
+  "16": "main-icon-16.png",
+  "32": "main-icon-32.png",
+  "48": "main-icon-48.png",
+  "128": "main-icon-128.png",
+};
+const LOCKED_ICON = {
+  "16": "locked-icon-16.png",
+  "32": "locked-icon-32.png",
+  "48": "locked-icon-48.png",
+  "128": "locked-icon-128.png",
+};
+
+async function syncActionIcons(sessions) {
+  try {
+    const source = sessions && typeof sessions === "object" ? sessions : await readSessions();
+    const windows = await chrome.windows.getAll();
+    for (const win of windows) {
+      const active =
+        typeof win.id === "number" &&
+        Boolean(source[win.id] && source[win.id].active === true);
+      const tabs = await chrome.tabs.query({ windowId: win.id });
+      for (const tab of tabs) {
+        if (typeof tab.id !== "number") continue;
+        chrome.action
+          .setIcon({ tabId: tab.id, path: active ? LOCKED_ICON : MAIN_ICON })
+          .catch(() => {});
+      }
+    }
+    chrome.action.setIcon({ path: MAIN_ICON }).catch(() => {});
+  } catch (err) {
+    console.error("Locked In: icon sync failed", err);
+  }
+}
 
 const chains = new Map();
 const chainEvents = [];
@@ -104,8 +187,6 @@ function makeSession({ active = false, workflow = "", checklist = [] } = {}) {
     active,
     workflow: typeof workflow === "string" ? workflow.trim() : "",
     checklist: Array.isArray(checklist) ? checklist : [],
-    onboardingStatus: active ? "accepted" : "pending",
-    onboardingOfferedAt: null,
     lastCleanupChainAt: null,
     lastCleanupPromptAt: null,
     tabActivity: {},
@@ -154,20 +235,53 @@ async function getSession(windowId) {
   return sessions[windowId] || null;
 }
 
-async function createSessionIfMissing(windowId) {
-  return withSessionMutation(async () => {
-    const sessions = await readSessions();
-    if (sessions[windowId]) return sessions[windowId];
-    sessions[windowId] = makeSession();
-    await writeSessions(sessions);
-    return sessions[windowId];
-  });
+async function isNormalWindow(windowId) {
+  if (typeof windowId !== "number") return false;
+  try {
+    const win = await chrome.windows.get(windowId);
+    return Boolean(win && win.type === "normal");
+  } catch (err) {
+    return false;
+  }
+}
+
+async function isWebsiteOwnedWindow(windowId) {
+  if (typeof windowId !== "number") return false;
+  return websiteOwnedWindows.has(windowId);
+}
+
+function markWebsiteOwnedIfNewWindow(tab) {
+  if (tab == null || typeof tab.id !== "number" || typeof tab.windowId !== "number") return;
+  if (typeof tab.openerTabId !== "number") return;
+  const created = recentlyCreatedWindows.get(tab.windowId);
+  if (created == null) return;
+  if (Date.now() - created > 4000) return;
+  websiteOwnedWindows.add(tab.windowId);
+  recentlyCreatedWindows.delete(tab.windowId);
+}
+
+async function isEligibleWindow(windowId) {
+  if (!(await isNormalWindow(windowId))) return false;
+  if (await isWebsiteOwnedWindow(windowId)) return false;
+  return true;
+}
+
+let activeWindowsReadyPromise = null;
+function ensureActiveWindowsReady() {
+  if (!activeWindowsReadyPromise) {
+    activeWindowsReadyPromise = refreshActiveWindows().catch(() => {});
+  }
+  return activeWindowsReadyPromise;
 }
 
 async function updateSession(windowId, patch) {
   return withSessionMutation(async () => {
     const sessions = await readSessions();
-    const current = sessions[windowId] || makeSession();
+    let current = sessions[windowId];
+    if (!current) {
+      if (!(await isEligibleWindow(windowId))) return null;
+      current = makeSession();
+    }
     const next = {
       ...current,
       ...(patch && typeof patch === "object" ? patch : {}),
@@ -253,12 +367,20 @@ async function recordCompletedSession(windowId, session) {
 
 async function refreshActiveWindows() {
   const sessions = await readSessions();
-  activeWindows = new Set(
+  const next = new Set(
     Object.keys(sessions)
       .map((key) => Number(key))
       .filter((windowId) => Number.isFinite(windowId))
       .filter((windowId) => sessions[windowId] && sessions[windowId].active === true)
   );
+  const changed =
+    next.size !== activeWindows.size ||
+    [...next].some((windowId) => !activeWindows.has(windowId)) ||
+    [...activeWindows].some((windowId) => !next.has(windowId));
+  activeWindows = next;
+  if (changed) {
+    syncActionIcons(sessions).catch(() => {});
+  }
 }
 
 function isActiveWindow(windowId) {
@@ -310,6 +432,7 @@ async function seedSessionsAndBaseline() {
 
   for (const win of windows) {
     if (!win || typeof win.id !== "number" || win.type !== "normal") continue;
+    if (await isWebsiteOwnedWindow(win.id)) continue;
     if (!sessions[win.id]) {
       sessions[win.id] = makeSession();
       changed = true;
@@ -369,7 +492,6 @@ async function migrateLegacyWorkflow() {
         active: true,
         workflow: legacy.trim(),
         checklist: [],
-        onboardingStatus: "accepted",
         focusStartedAt: Date.now(),
       });
     }
@@ -410,6 +532,9 @@ function clearTabTracking(tabId) {
   cancelScheduledClose(tabId);
   pendingTabs.delete(tabId);
   freshTabs.delete(tabId);
+  newTabs.delete(tabId);
+  promptedTabs.delete(tabId);
+  persistTrackingStateSoon();
 }
 
 function clearWindowEnforcement(windowId, reason) {
@@ -448,6 +573,7 @@ function scheduleAutoClose(tabId, windowId) {
 
       pendingTabs.delete(tabId);
       freshTabs.delete(tabId);
+      persistTrackingStateSoon();
       chrome.tabs.remove(tabId).catch(() => {});
     }, AUTO_CLOSE_GRACE_MS)
   );
@@ -467,19 +593,7 @@ function getChain(windowId) {
 }
 
 function resetChain(windowId, reason) {
-  const chain = chains.get(windowId);
-  if (chain && chain.originTabId != null) {
-    console.log(
-      `[Locked In] Tab chain reset (window=${windowId}, origin=${chain.originTabId}, reason=${reason})`
-    );
-  }
   chains.delete(windowId);
-}
-
-function logChainVisit(windowId, chain, tabId) {
-  console.log(
-    `[Locked In] Tab chain visit (window=${windowId}, tab=${tabId}, visited=[${Array.from(chain.visited).join(",")}])`
-  );
 }
 
 function addChainVisit(windowId, tabId) {
@@ -491,7 +605,6 @@ function addChainVisit(windowId, tabId) {
   if (known && known.web) {
     if (!chain.visited.has(tabId)) {
       chain.visited.add(tabId);
-      logChainVisit(windowId, chain, tabId);
     }
     return;
   }
@@ -508,7 +621,6 @@ function addChainVisit(windowId, tabId) {
       setTabUrl(tabId, url);
       if (!live.visited.has(tabId)) {
         live.visited.add(tabId);
-        logChainVisit(windowId, live, tabId);
       }
     })
     .catch(() => {});
@@ -536,10 +648,6 @@ function trackChain(windowId, previousId, currentId) {
         lastChainEvent = event;
         chainEvents.push(event);
         if (chainEvents.length > MAX_CHAIN_EVENTS) chainEvents.shift();
-        console.log(
-          `[Locked In] Tab chain detected (window=${windowId}, origin=${event.originTabId}, visited=[${event.visitedTabIds.join(",")}], startedAt=${event.startedAt}, detectedAt=${event.detectedAt})`,
-          event
-        );
       }
       resetChain(windowId, "returned to origin");
       return event;
@@ -550,9 +658,6 @@ function trackChain(windowId, previousId, currentId) {
 
   chain.originTabId = previousId;
   chain.startedAt = Date.now();
-  console.log(
-    `[Locked In] Tab chain started (window=${windowId}, origin=${previousId})`
-  );
   addChainVisit(windowId, currentId);
   return null;
 }
@@ -575,61 +680,37 @@ async function sendPrompt(tabId, workflow, windowId) {
   if (!ok) return;
   if (!isActiveWindow(windowId)) return;
   pendingTabs.set(tabId, windowId);
+  persistTrackingStateSoon();
 }
 
 async function showPrompt(tabId, windowId) {
   if (promptedTabs.has(tabId)) return;
   promptedTabs.add(tabId);
-  newTabs.delete(tabId);
+  persistTrackingStateSoon();
 
-  if (!isActiveWindow(windowId)) return;
-
-  const session = await getSession(windowId);
-  if (!session || session.active !== true) return;
-
-  const workflow = session.workflow;
-  if (!workflow) return;
-
-  await sendPrompt(tabId, workflow, windowId);
-}
-
-async function maybeOfferOnboarding(tab) {
-  if (tab == null || tab.id == null || tab.windowId == null) return;
-  if (!isUsableWebUrl(tab.url || "")) return;
-  await createSessionIfMissing(tab.windowId);
-
-  const session = await getSession(tab.windowId);
-  if (!session) return;
-  if (session.onboardingStatus !== "pending") return;
-  if (session.active === true) {
-    await updateSession(tab.windowId, { onboardingStatus: "accepted" });
+  if (!isActiveWindow(windowId)) {
+    promptedTabs.delete(tabId);
+    persistTrackingStateSoon();
     return;
   }
-  if (session.onboardingOfferedAt != null) return;
 
-  await updateSession(tab.windowId, { onboardingOfferedAt: Date.now() });
-
-  const recheck = await getSession(tab.windowId);
-  if (!recheck || recheck.onboardingStatus !== "pending") return;
-
-  const ok = await sendToTab(tab.id, { type: "LI_ONBOARDING_SHOW" });
-  if (!ok) {
-    await updateSession(tab.windowId, { onboardingOfferedAt: null });
+  const session = await getSession(windowId);
+  if (!session || session.active !== true) {
+    promptedTabs.delete(tabId);
+    persistTrackingStateSoon();
+    return;
   }
-}
 
-async function handleOnboardingResponse(choice, sender) {
-  const windowId = sender && sender.tab ? sender.tab.windowId : null;
-  if (windowId == null) return;
-  const accepted = choice === "yes";
+  const workflow = session.workflow || "";
 
-  await createSessionIfMissing(windowId);
-  await updateSession(windowId, {
-    onboardingStatus: accepted ? "accepted" : "declined",
-    active: accepted,
-    focusStartedAt: accepted ? Date.now() : null,
-  });
-  await refreshActiveWindows();
+  newTabs.delete(tabId);
+  persistTrackingStateSoon();
+  const ok = await sendPrompt(tabId, workflow, windowId);
+  if (!ok) {
+    promptedTabs.delete(tabId);
+    newTabs.add(tabId);
+    persistTrackingStateSoon();
+  }
 }
 
 async function getWorkflowTabs(windowId) {
@@ -966,26 +1047,29 @@ async function maybePresentCleanup(windowId) {
   if (!isUsableWebUrl(active.url || "")) return;
   if (pendingTabs.has(active.id) || freshTabs.has(active.id)) return;
 
-  const shown = tabs.slice(0, CLEANUP_MAX_VISIBLE_TABS).map(cleanupTabData);
+  const others = tabs.filter((tab) => tab.id !== active.id);
+  const shown = others.slice(0, CLEANUP_MAX_VISIBLE_TABS).map(cleanupTabData);
   await updateSession(windowId, { lastCleanupPromptAt: Date.now() });
 
   const ok = await sendToTab(active.id, {
     type: "LI_CLEANUP_SHOW",
     workflow: session.workflow || "",
     tabs: shown,
-    extraTabs: tabs.length - shown.length,
+    extraTabs: others.length - shown.length,
+    activeTabId: active.id,
   });
   if (!ok) {
     await updateSession(windowId, { lastCleanupPromptAt: null });
   }
 }
 
-async function closeCleanupTabs(windowId, tabIds) {
+async function closeCleanupTabs(windowId, tabIds, excludeTabId) {
   const ids = Array.isArray(tabIds)
     ? tabIds.filter((id) => Number.isInteger(id))
     : [];
   const closed = [];
   for (const id of ids) {
+    if (id === excludeTabId) continue;
     let tab = null;
     try {
       tab = await chrome.tabs.get(id);
@@ -1075,24 +1159,68 @@ function handleTabRemoved(tabId) {
 }
 
 chrome.windows.onCreated.addListener((win) => {
-  if (win && typeof win.id === "number" && win.type === "normal") {
-    createSessionIfMissing(win.id).catch(() => {});
-  }
+  if (!win || typeof win.id !== "number" || win.type !== "normal") return;
+  recentlyCreatedWindows.set(win.id, Date.now());
+  ensureActiveWindowsReady()
+    .then(() => isWebsiteOwnedWindow(win.id))
+    .then((owned) => {
+      if (owned) return null;
+      return withSessionMutation(async () => {
+        const sessions = await readSessions();
+        if (sessions[win.id]) return sessions[win.id];
+        sessions[win.id] = makeSession();
+        await writeSessions(sessions);
+        return sessions[win.id];
+      });
+    })
+    .catch(() => {});
 });
 
 chrome.tabs.onCreated.addListener((tab) => {
   if (tab.id == null || tab.windowId == null) return;
-  setTabUrl(tab.id, tab.url || tab.pendingUrl || "");
+  markWebsiteOwnedIfNewWindow(tab);
+  const url = tab.url || tab.pendingUrl || "";
+  setTabUrl(tab.id, url);
 
-  if (!isActiveWindow(tab.windowId)) return;
+  if (activeWindowsReadyPromise != null) {
+    if (!isActiveWindow(tab.windowId)) return;
+    newTabs.add(tab.id);
+    persistTrackingStateSoon();
+    if (isUsableWebUrl(url)) {
+      showPrompt(tab.id, tab.windowId).catch(() => {});
+    } else {
+      freshTabs.set(tab.id, tab.windowId);
+      persistTrackingStateSoon();
+    }
+    return;
+  }
 
   newTabs.add(tab.id);
-  const url = tab.url || tab.pendingUrl || "";
-  if (isUsableWebUrl(url)) {
-    showPrompt(tab.id, tab.windowId).catch(() => {});
-  } else {
-    freshTabs.set(tab.id, tab.windowId);
-  }
+  persistTrackingStateSoon();
+  ensureActiveWindowsReady()
+    .then(async () => {
+      if (isActiveWindow(tab.windowId)) {
+        let currentUrl = url;
+        try {
+          const live = await chrome.tabs.get(tab.id);
+          currentUrl = (live && (live.url || live.pendingUrl || "")) || url;
+        } catch (err) {
+          // Tab may have closed; fall back to the captured url.
+        }
+        if (isUsableWebUrl(currentUrl)) {
+          showPrompt(tab.id, tab.windowId).catch(() => {});
+        } else if (!freshTabs.has(tab.id)) {
+          freshTabs.set(tab.id, tab.windowId);
+          persistTrackingStateSoon();
+        }
+      } else {
+        freshTabs.delete(tab.id);
+        newTabs.delete(tab.id);
+        promptedTabs.delete(tab.id);
+        persistTrackingStateSoon();
+      }
+    })
+    .catch(() => {});
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -1118,11 +1246,13 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
   if (isUsableWebUrl(url)) {
     freshTabs.delete(tabId);
+    persistTrackingStateSoon();
     if (changeInfo.status === "complete") {
       showPrompt(tabId, tab.windowId).catch(() => {});
     }
   } else if (!isUnusedFreshUrl(url)) {
     freshTabs.delete(tabId);
+    persistTrackingStateSoon();
   }
 });
 
@@ -1185,6 +1315,8 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
 });
 
 chrome.windows.onRemoved.addListener((windowId) => {
+  websiteOwnedWindows.delete(windowId);
+  recentlyCreatedWindows.delete(windowId);
   clearWindowEnforcement(windowId);
   removeSession(windowId).catch(() => {});
 });
@@ -1296,27 +1428,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
 
-    case "LI_ONBOARDING_RESPONSE":
-      handleOnboardingResponse(message.choice, sender)
+    case "LI_SYNC_ICONS":
+      refreshActiveWindows()
         .then(() => sendResponse({ ok: true }))
-        .catch((err) => {
-          console.error("Locked In: onboarding response failed", err);
-          sendResponse({ ok: false });
-        });
+        .catch(() => sendResponse({ ok: false }));
       return true;
 
-    case "LI_CHECK_ONBOARDING": {
+    case "LI_CONTENT_READY": {
       if (!sender.tab) {
         sendResponse({ ok: false });
         break;
       }
-      maybeOfferOnboarding(sender.tab)
-        .then(() => sendResponse({ ok: true }))
-        .catch((err) => {
-          console.error("Locked In: onboarding check failed", err);
-          sendResponse({ ok: false });
-        });
-      return true;
+      if (newTabs.has(sender.tab.id)) {
+        showPrompt(sender.tab.id, sender.tab.windowId).catch(() => {});
+      }
+      sendResponse({ ok: true });
+      break;
     }
 
     case "LI_CLEANUP_CLOSE": {
@@ -1324,7 +1451,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: true, closed: [] });
         break;
       }
-      closeCleanupTabs(sender.tab.windowId, message.tabIds)
+      closeCleanupTabs(sender.tab.windowId, message.tabIds, sender.tab.id)
         .then((closed) => sendResponse({ ok: true, closed }))
         .catch((err) => {
           console.error("Locked In: cleanup close failed", err);

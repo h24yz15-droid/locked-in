@@ -1,15 +1,32 @@
 {
   "manifest_version": 3,
   "name": "Locked In",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "description": "A focus extension that keeps you aligned with your current workflow.",
   "permissions": [
     "storage",
     "tabs"
   ],
+  "icons": {
+    "16": "main-icon-16.png",
+    "32": "main-icon-32.png",
+    "48": "main-icon-48.png",
+    "128": "main-icon-128.png"
+  },
   "background": {
     "service_worker": "background.js"
   },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "main-icon.png",
+        "locked-icon.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
   "content_scripts": [
     {
       "matches": [
@@ -27,6 +44,12 @@
   ],
   "action": {
     "default_title": "Locked In",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "main-icon-16.png",
+      "32": "main-icon-32.png",
+      "48": "main-icon-48.png",
+      "128": "main-icon-128.png"
+    }
   }
 }
