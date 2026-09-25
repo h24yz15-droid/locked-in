@@ -13,6 +13,18 @@
       <p class="tagline">What are you working on?</p>
     </header>
 
+    <section class="session-section">
+      <div class="session-info">
+        <div class="session-state-line">
+          <span id="session-dot" class="session-dot"></span>
+          <strong id="session-state" class="session-state">Inactive</strong>
+        </div>
+        <span id="session-hint" class="session-hint">Enforcement is off.</span>
+        <span id="focus-time" class="focus-time"></span>
+      </div>
+      <button type="button" id="toggle-button" class="toggle-button">Turn on</button>
+    </section>
+
     <form id="workflow-form">
       <label for="workflow-input" class="sr-only">Current workflow</label>
       <input
@@ -25,8 +37,65 @@
       >
       <button type="submit" id="save-button">Save workflow</button>
     </form>
-
     <p id="confirmation" class="confirmation" hidden>Workflow saved.</p>
+
+    <section class="checklist-section">
+      <h2 class="saved-heading">Checklist</h2>
+      <form id="checklist-form" class="checklist-form">
+        <label for="checklist-input" class="sr-only">Add checklist item</label>
+        <input
+          type="text"
+          id="checklist-input"
+          placeholder="Add a step…"
+          autocomplete="off"
+          spellcheck="false"
+          maxlength="200"
+        >
+        <button type="submit" id="checklist-add">Add</button>
+      </form>
+      <p id="checklist-progress" class="checklist-progress"></p>
+      <ul id="checklist-list" class="checklist-list"></ul>
+    </section>
+
+    <section class="saved-section">
+      <h2 class="saved-heading">Saved for later</h2>
+      <ul id="saved-list" class="saved-list"></ul>
+      <p id="saved-empty" class="saved-empty" hidden>Nothing saved for later.</p>
+    </section>
+
+    <section class="settings-section">
+      <h2 class="saved-heading">Settings</h2>
+      <label class="dev-toggle">
+        <input type="checkbox" id="focus-timer" checked>
+        <span>Focus timer</span>
+      </label>
+      <label class="dev-toggle">
+        <input type="checkbox" id="enforce-tabs-checkbox" checked>
+        <span>Tab enforcement</span>
+      </label>
+      <label class="dev-toggle">
+        <input type="checkbox" id="organize-tabs-checkbox" checked>
+        <span>Automatic tab organization</span>
+      </label>
+      <div class="settings-row">
+        <label class="settings-label" for="cleanup-frequency-select">Cleanup frequency</label>
+        <select id="cleanup-frequency-select">
+          <option value="0">0 minutes</option>
+          <option value="15">15 minutes</option>
+          <option value="30" selected>30 minutes</option>
+          <option value="60">60 minutes</option>
+        </select>
+      </div>
+      <button type="button" id="end-session-button" class="end-session-button">End session</button>
+    </section>
+
+    <section class="dev-section">
+      <h2 class="saved-heading">Developer testing</h2>
+      <label class="dev-toggle">
+        <input type="checkbox" id="dev-bypass">
+        <span>Bypass cleanup cooldown</span>
+      </label>
+    </section>
   </div>
 
   <script src="popup.js"></script>

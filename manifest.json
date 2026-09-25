@@ -1,9 +1,30 @@
 {
   "manifest_version": 3,
   "name": "Locked In",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "A focus extension that keeps you aligned with your current workflow.",
-  "permissions": ["storage"],
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "exclude_matches": [
+        "https://chrome.google.com/webstore/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
   "action": {
     "default_title": "Locked In",
     "default_popup": "popup.html"
