@@ -1,6 +1,6 @@
 # Locked In
 
-Locked In is a Chrome/Edge browser extension that keeps you aligned with your current workflow. It turns a browsing window into a focus session, prompts you about new tabs, and helps you clean up tabs that are no longer needed.
+Locked In is a browser extension that keeps you aligned with your current workflow. It turns a browsing window into a focus session, prompts you about new tabs, and helps you clean up tabs that are no longer needed.
 
 ## What it does
 
